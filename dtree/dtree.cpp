@@ -11,41 +11,41 @@ using namespace std;
 
 class DTreeNode
 {
-    public:
-    private:
-        int tag;
-        int feature_index;
-        vector<DTreeNode*> children;
+public:
+private:
+    int tag;
+    int feature_index;
+    vector<DTreeNode*> children;
 };
 
 
 typedef pair<vector<int>, int> DataItem;
 typedef list<int> FeatureSet;
-typedef vector<DataItem> DataSet;
+typedef list<DataItem> DataSet;
 
 /*Impirical Entropy*/
 float H(const DataSet& dataset,
-        const DataSet::const_iterator& it_begin,
-        const DataSet::const_iterator& it_end)
+	const DataSet::const_iterator& it_begin,
+	const DataSet::const_iterator& it_end)
 {
     map<int, int> stats;
     for (auto itr=it_begin; itr!=it_end; ++itr)
     {
-        ++stats[itr->second];
+	++stats[itr->second];
     }
     float sum = 0;
     for (auto itr=stats.begin(); itr!=stats.end(); ++itr)
     {
-        float p = itr->second / float(dataset.size());
-        sum -= p*log2(p);
+	float p = itr->second / float(dataset.size());
+	sum -= p*log2(p);
     }
     return sum;
 }
 
 float IG(const DataSet& dataset,
-        const DataSet::const_iterator& it_begin,
-        const DataSet::const_iterator& it_end,
-        int feature_index)
+	 const DataSet::const_iterator& it_begin,
+	 const DataSet::const_iterator& it_end,
+	 int feature_index)
 {
     float impirical_entropy = H(dataset, it_begin, it_end);
     map<int, int> stats_x;
@@ -53,68 +53,139 @@ float IG(const DataSet& dataset,
     map<int, int> total_y;
     for (auto itr=it_begin; itr!=it_end; ++itr)
     {
-        ++stats_x[(itr->first)[feature_index]];
-        ++stats_y[(itr->first)[feature_index]][itr->second];
-        ++total_y[(itr->first)[feature_index]];
+	++stats_x[(itr->first)[feature_index]];
+	++stats_y[(itr->first)[feature_index]][itr->second];
+	++total_y[(itr->first)[feature_index]];
     }
     float impirical_conditional_entropy = 0;
     for (auto itr=stats_x.begin(); itr!=stats_x.end(); ++itr)
     {
-        float p = itr->second / float(dataset.size());
-        float sum = 0;
-        for (auto itr_y=stats_y[itr->first].begin(); itr_y!=stats_y[itr->first].end(); ++itr_y)
-        {
-            float p = itr_y->second / float(total_y[itr->first]);
-            sum -= p*log2(p);
-        }
-        impirical_conditional_entropy += p*sum;
+	float p = itr->second / float(dataset.size());
+	float sum = 0;
+	for (auto itr_y=stats_y[itr->first].begin(); itr_y!=stats_y[itr->first].end(); ++itr_y)
+	{
+	    float p = itr_y->second / float(total_y[itr->first]);
+	    sum -= p*log2(p);
+	}
+	impirical_conditional_entropy += p*sum;
     }
     return impirical_entropy - impirical_conditional_entropy;
 }
 
+list<DataSet::iterator> multi_partition(DataSet& dataset,
+		     const DataSet::iterator& begin,
+		     const DataSet::iterator& end,
+		     int feature_index)
+{
+    map<int, DataSet::iterator> block_tail;
+    list<int> order;
+
+    auto itr = begin;
+
+    while (itr != end)
+    {
+	auto next = itr;
+	++next;
+	int k = (itr->first)[feature_index];
+	auto p = block_tail.find(k); 
+	if (p == block_tail.end())
+	{
+	    block_tail[k] = itr;
+	    order.push_back(k);
+	}
+	else
+	{
+	    auto t = p->second;
+	    ++t;
+	    dataset.splice(t, dataset, itr);
+	    ++(p->second);
+	}
+	itr = next;
+    }
+
+    list<DataSet::iterator> result;
+    for (auto itr=order.begin(); itr!=order.end(); ++itr)
+    {
+	result.push_back(++block_tail[*itr]);
+    }
+    return result;
+}
+
+int most_frequent_category(const DataSet& dataset,
+			   const DataSet::iterator& begin,
+			   const DataSet::iterator& end)
+{
+    map<int, int> stats;
+    for (auto itr=begin; itr!=end; ++itr)
+    {
+	++stats[itr->second];
+    }
+    return max_element(stats.cbegin(), stats.cend(),
+		[](const pair<int, int>& lhs, const pair<int, int>& rhs)
+		{
+		    return lhs.second < rhs.second;
+		})->first;
+}
+
 class DTree
 {
-    public:
-        DTree()
-        {
-        }
+public:
+    DTree()
+    {
+    }
 
-        ~DTree()
-        {
-        }
+    ~DTree()
+    {
+    }
 
-        DTreeNode* GenerateNode(DataSet& dataset,
-                const DataSet::iterator& begin,
-                const DataSet::iterator& end,
-                set<int>& features)
-        {
-            /**
-             * More Efficient
-             * */
-            float ig_max = -1;
-            set<int>::iterator ig_max_it;
-            for (auto itr=features.begin(); itr!=features.end(); ++itr)
-            {
-                float ig = IG(dataset, begin, end, *itr);
-                if (ig > ig_max)
-                {
-                    ig_max = ig, ig_max_it = itr;
-                }
-            }
+    DTreeNode* GenerateNode(DataSet& dataset,
+			    const DataSet::iterator& begin,
+			    const DataSet::iterator& end,
+			    set<int>& features)
+    {
+	/**
+	 * More Efficient
+	 * */
+	float ig_max = -1;
+	set<int>::iterator ig_max_it;
+	for (auto itr=features.begin(); itr!=features.end(); ++itr)
+	{
+	    float ig = IG(dataset, begin, end, *itr);
+	    if (ig > ig_max)
+	    {
+		ig_max = ig, ig_max_it = itr;
+	    }
+	}
 
-            /**
-             * More elegent
-            auto ig_max_it = max_element(features.begin(), features.end(),
-                    [&](int lhs, int rhs){return IG(dataset, begin, end, lhs) < IG(dataset,begin, end, rhs);});
-            */
-            
-        }
+	/**
+	 * More elegent
+	 auto ig_max_it = max_element(features.begin(), features.end(),
+	 [&](int lhs, int rhs){return IG(dataset, begin, end, lhs) < IG(dataset,begin, end, rhs);});
+	 * */
+	list<DataSet::iterator> partition_list = multi_partition(dataset, begin, end, *ig_max_it);
+	auto r = begin;
+	for (auto itr=partition_list.begin(); itr!=partition_list.end(); ++itr)
+	{
+	    for (auto l=r; l!=*itr; ++l)
+	    {
+		for (auto i=l->first.begin(); i!=l->first.end(); ++i)
+		{
+		    cout << *i << ' ';
+		}
+		cout << l->second << endl;
+	    }
+	    int c = most_frequent_category(dataset, r, *itr);
+	    cout << c << "  ------------" << endl;
+	    r = *itr;
+	}
+
+    }
 
 };
 
 int main()
 {
-    vector<DataItem> dataset;
+    DataSet dataset;
     dataset.push_back({{0, 0, 0, 0}, 0});
     dataset.push_back({{0, 0, 0, 1}, 0});
     dataset.push_back({{0, 1, 0, 1}, 1});
