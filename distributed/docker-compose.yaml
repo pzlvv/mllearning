@@ -1,0 +1,34 @@
+version: '3'
+services:
+  ps0:
+    image: ${RUNENV}
+    volumes:
+      - ./app:/app
+      - train_logs:/tmp/train_logs
+    command: python /app/main.py --ps_hosts=ps0:1111 --worker_hosts=worker0:2222,worker1:2333 --job_name=ps --task_index=0
+    networks:
+      - tensorflow-cluster
+  worker0:
+    image: ${RUNENV}
+    volumes:
+      - ./app:/app
+      - train_logs:/tmp/train_logs
+    command: python /app/main.py --ps_hosts=ps0:1111 --worker_hosts=worker0:2222,worker1:2333 --job_name=worker --task_index=0
+    networks:
+      - tensorflow-cluster
+
+  worker1:
+    image: ${RUNENV}
+    volumes:
+      - ./app:/app
+    command: python /app/main.py --ps_hosts=ps0:1111 --worker_hosts=worker0:2222,worker1:2333 --job_name=worker --task_index=1
+    networks:
+      - tensorflow-cluster
+
+networks:
+  tensorflow-cluster:
+    driver: bridge
+
+volumes:
+  train_logs:
+    driver: local
