@@ -12,10 +12,9 @@ using namespace std;
 class DTreeNode
 {
 public:
-private:
     int tag;
     int feature_index;
-    vector<DTreeNode*> children;
+    map<int, DTreeNode*> children;
 };
 
 
@@ -25,11 +24,11 @@ typedef list<DataItem> DataSet;
 
 /*Impirical Entropy*/
 float H(const DataSet& dataset,
-	const DataSet::const_iterator& it_begin,
-	const DataSet::const_iterator& it_end)
+	const DataSet::const_iterator& begin,
+	const DataSet::const_iterator& end)
 {
     map<int, int> stats;
-    for (auto itr=it_begin; itr!=it_end; ++itr)
+    for (auto itr=begin; itr!=end; ++itr)
     {
 	++stats[itr->second];
     }
@@ -43,15 +42,15 @@ float H(const DataSet& dataset,
 }
 
 float IG(const DataSet& dataset,
-	 const DataSet::const_iterator& it_begin,
-	 const DataSet::const_iterator& it_end,
+	 const DataSet::const_iterator& begin,
+	 const DataSet::const_iterator& end,
 	 int feature_index)
 {
-    float impirical_entropy = H(dataset, it_begin, it_end);
+    float impirical_entropy = H(dataset, begin, end);
     map<int, int> stats_x;
     map<int, map<int, int>> stats_y;
     map<int, int> total_y;
-    for (auto itr=it_begin; itr!=it_end; ++itr)
+    for (auto itr=begin; itr!=end; ++itr)
     {
 	++stats_x[(itr->first)[feature_index]];
 	++stats_y[(itr->first)[feature_index]][itr->second];
@@ -138,11 +137,49 @@ public:
     {
     }
 
-    DTreeNode* GenerateNode(DataSet& dataset,
+    int predict(DTreeNode* root, const vector<int>& x)
+    {
+	DTreeNode* cur = root;
+	while (!cur->children.empty())
+	{
+	    cur = cur->children[x[cur->feature_index]];
+	}
+	return cur->tag;
+    }
+
+    DTreeNode* GenerateTree(DataSet& dataset,
 			    const DataSet::iterator& begin,
 			    const DataSet::iterator& end,
 			    set<int>& features)
     {
+	if (features.empty())
+	{
+	    int c = most_frequent_category(dataset, begin, end);
+	    DTreeNode* node = new DTreeNode;
+	    node->tag = c;
+	    node->feature_index = -1;
+	    return node;
+	}
+
+	int target = dataset.cbegin()->second;
+	bool all_same_flag = true;
+	for (auto itr=dataset.cbegin(); itr!=dataset.cend(); ++itr)
+	{
+	    if (itr->second != target)
+	    {
+		all_same_flag = false;
+		break;
+	    }
+	}
+
+	if (all_same_flag)
+	{
+	    DTreeNode* node = new DTreeNode;
+	    node->tag = target;
+	    node->feature_index = -1;
+	    return node;
+	}
+
 	/**
 	 * More Efficient
 	 * */
@@ -162,26 +199,42 @@ public:
 	 auto ig_max_it = max_element(features.begin(), features.end(),
 	 [&](int lhs, int rhs){return IG(dataset, begin, end, lhs) < IG(dataset,begin, end, rhs);});
 	 * */
-	list<DataSet::iterator> partition_list = multi_partition(dataset, begin, end, *ig_max_it);
-	auto r = begin;
+	int ig_max_feature = *ig_max_it;
+	list<DataSet::iterator> partition_list = multi_partition(dataset, begin, end, ig_max_feature);
+	auto l = begin;
+	features.erase(ig_max_it);
+	DTreeNode* node = new DTreeNode;
+	node->feature_index = ig_max_feature;
 	for (auto itr=partition_list.begin(); itr!=partition_list.end(); ++itr)
 	{
-	    for (auto l=r; l!=*itr; ++l)
-	    {
-		for (auto i=l->first.begin(); i!=l->first.end(); ++i)
-		{
-		    cout << *i << ' ';
-		}
-		cout << l->second << endl;
-	    }
-	    int c = most_frequent_category(dataset, r, *itr);
-	    cout << c << "  ------------" << endl;
-	    r = *itr;
+	    auto x = GenerateTree(dataset, l, *itr, features);
+	    //int c = most_frequent_category(dataset, r, *itr);
+	    node->children[l->first[ig_max_feature]] = x;
+	    l = *itr;
 	}
+	return node;
 
     }
 
 };
+
+void print_tree(DTreeNode* node)
+{
+    if (node->children.empty())
+    {
+	int tag = node->tag;
+	cout << "tag: " << tag << endl;;
+    }
+    else
+    {
+	cout << "max feature: " << node->feature_index << endl;
+	for (auto itr=node->children.begin(); itr!=node->children.end(); ++itr)
+	{
+	    cout << "feature value: " << itr->first << endl;
+	    print_tree(itr->second);
+	}
+    }
+}
 
 int main()
 {
@@ -205,6 +258,12 @@ int main()
     //cout << IG(dataset, dataset.cbegin(), dataset.cend(), 0) << endl;
     DTree dtree;
     set<int> features = {0, 1, 2, 3};
-    dtree.GenerateNode(dataset, dataset.begin(), dataset.end(), features);
+    auto node = dtree.GenerateTree(dataset, dataset.begin(), dataset.end(), features);
+    print_tree(node);
+    for(auto itr=dataset.begin(); itr!=dataset.end(); ++itr)
+    {
+	cout << dtree.predict(node, itr->first) << "," << itr->second << endl;
+    }
+    cout << dtree.predict(node, {0, 0, 0, 0})<<endl;
     return 0;
 }
